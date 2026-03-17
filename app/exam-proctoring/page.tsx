@@ -58,10 +58,23 @@ export default function ExamProctoringPage() {
     screenMonitoringEnabled &&
     agreedToRules;
 
-  const handleStartExam = () => {
-    if (canStartExam) {
-      router.push("/quiz-login");
+  const handleStartExam = async () => {
+    if (!canStartExam) return;
+
+    try {
+      // Fire-and-forget call to local Python proctoring server
+      await fetch("http://127.0.0.1:5001/start-proctor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ camera_index: 0 }),
+      });
+    } catch {
+      // If the Python server is not running, the exam can still proceed,
+      // but proctoring will not be active.
+      console.warn("Could not reach local proctoring server on port 5001.");
     }
+
+    router.push("/quiz-login");
   };
 
   const rules = [
