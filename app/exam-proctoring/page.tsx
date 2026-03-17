@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Mic, Camera, Monitor, CheckCircle, AlertCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
@@ -21,6 +21,18 @@ export default function ExamProctoringPage() {
     camera: "idle",
     screen: "idle",
   });
+  const [cameraError, setCameraError] = useState<string | null>(null);
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
 
   const handleRequestPermission = async (
     type: "mic" | "camera" | "screen"
@@ -36,18 +48,27 @@ export default function ExamProctoringPage() {
         setPermissionStatus((prev) => ({ ...prev, mic: "granted" }));
         stream.getTracks().forEach((track) => track.stop());
       } else if (type === "camera") {
+        setCameraError(null);
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
+          video: { width: 640, height: 480 },
         });
+        cameraStreamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
         setCameraEnabled(true);
         setPermissionStatus((prev) => ({ ...prev, camera: "granted" }));
-        stream.getTracks().forEach((track) => track.stop());
       } else if (type === "screen") {
         setScreenMonitoringEnabled(true);
         setPermissionStatus((prev) => ({ ...prev, screen: "granted" }));
       }
     } catch (error) {
       setPermissionStatus((prev) => ({ ...prev, [type]: "denied" }));
+      if (type === "camera") {
+        setCameraError(
+          "Camera access failed. Check browser permissions or if another app is using the camera."
+        );
+      }
       alert(`Permission denied for ${type}. Please enable it in your browser settings.`);
     }
   };
@@ -102,7 +123,7 @@ export default function ExamProctoringPage() {
           </p>
 
           <div className="space-y-4">
-            
+            {/* Microphone */}
             <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center">
@@ -137,6 +158,7 @@ export default function ExamProctoringPage() {
               )}
             </div>
 
+            {/* Camera */}
             <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center">
@@ -168,6 +190,9 @@ export default function ExamProctoringPage() {
                   <AlertCircle className="w-4 h-4 mr-1" />
                   Permission denied. Please enable in browser settings.
                 </p>
+              )}
+              {cameraError && (
+                <p className="text-xs text-red-500 mt-1">{cameraError}</p>
               )}
             </div>
 
@@ -212,6 +237,27 @@ export default function ExamProctoringPage() {
           animate={{ opacity: 1, x: 0 }}
           className="w-full lg:w-2/3 bg-white dark:bg-card-dark border-l border-gray-200 dark:border-gray-700 p-6 lg:p-12"
         >
+          {/* Live camera preview */}
+          <div className="mb-6">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+              Live Camera Preview
+            </h3>
+            <div className="relative rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden bg-black aspect-video flex items-center justify-center">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover"
+              />
+              {!cameraEnabled && (
+                <span className="absolute text-xs text-gray-400">
+                  Enable camera to see preview
+                </span>
+              )}
+            </div>
+          </div>
+
           <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-6">
             Exam Rules Notice
           </h2>
