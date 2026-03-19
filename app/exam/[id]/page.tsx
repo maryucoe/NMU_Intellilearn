@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
 import { Clock, CheckCircle, Circle, AlertTriangle, Maximize2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import { useRouter } from "next/navigation";
 
 // Mock exam data
 const examData = {
@@ -54,13 +55,19 @@ const examData = {
 };
 
 export default function ExamPage({ params }: { params: { id: string } }) {
+  const router = useRouter();
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [timeRemaining, setTimeRemaining] = useState(examData.duration * 60);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [showWarning, setShowWarning] = useState(false);
 
+  const [proctorSuspicious, setProctorSuspicious] = useState(false);
+  const [proctorMessage, setProctorMessage] = useState<string | null>(null);
+
   useEffect(() => {
+    if (proctorSuspicious) return;
+
     const timer = setInterval(() => {
       setTimeRemaining((prev) => {
         if (prev <= 1) {
@@ -73,7 +80,7 @@ export default function ExamPage({ params }: { params: { id: string } }) {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [proctorSuspicious]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -88,6 +95,56 @@ export default function ExamPage({ params }: { params: { id: string } }) {
     };
   }, []);
 
+  useEffect(() => {
+    let poll: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
+
+    const startAndPoll = async () => {
+      try {
+        await fetch("http://127.0.0.1:5001/start-proctor", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ camera_index: 0 }),
+        });
+      } catch {
+        // If the server is not running, keep exam usable.
+        return;
+      }
+
+      poll = setInterval(async () => {
+        try {
+          const res = await fetch("http://127.0.0.1:5001/status");
+          const data = await res.json();
+          if (cancelled) return;
+
+          if (data?.suspicious) {
+            setProctorSuspicious(true);
+            setProctorMessage(
+              data?.last_message || "Suspicious activity detected."
+            );
+
+            // Stop best-effort
+            fetch("http://127.0.0.1:5001/stop-proctor", {
+              method: "POST",
+            }).catch(() => {});
+
+            if (poll) clearInterval(poll);
+          }
+        } catch {
+          // ignore polling errors
+        }
+      }, 1500);
+    };
+
+    startAndPoll();
+
+    return () => {
+      cancelled = true;
+      if (poll) clearInterval(poll);
+      fetch("http://127.0.0.1:5001/stop-proctor", { method: "POST" }).catch(() => {});
+    };
+  }, [params.id]);
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -99,10 +156,15 @@ export default function ExamPage({ params }: { params: { id: string } }) {
   };
 
   const handleSubmit = () => {
+    if (proctorSuspicious) return;
     if (confirm("Are you sure you want to submit the exam?")) {
       // Handle submission
       console.log("Exam submitted", answers);
     }
+  };
+
+  const handleExitExam = () => {
+    router.push("/my-exam");
   };
 
   const question = examData.questions[currentQuestion];
@@ -110,6 +172,27 @@ export default function ExamPage({ params }: { params: { id: string } }) {
 
   return (
     <div className="min-h-screen bg-background-light dark:bg-background-dark">
+      {proctorSuspicious && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-card-light dark:bg-card-dark rounded-xl p-6 max-w-lg w-full border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center mb-3">
+              <AlertTriangle className="w-6 h-6 text-error mr-3" />
+              <h3 className="text-xl font-semibold">Exam Locked</h3>
+            </div>
+            <p className="text-gray-700 dark:text-gray-300 mb-4">
+              {proctorMessage ||
+                "Suspicious activity was detected. Your exam has been ended."}
+            </p>
+            <button
+              onClick={handleExitExam}
+              className="w-full py-3 rounded-lg font-semibold bg-primary text-white hover:bg-primary-dark"
+            >
+              Exit Exam
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="sticky top-0 z-50 bg-card-light dark:bg-card-dark border-b border-gray-200 dark:border-gray-700">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -130,6 +213,7 @@ export default function ExamPage({ params }: { params: { id: string } }) {
               <button
                 onClick={() => setIsFullScreen(!isFullScreen)}
                 className="p-2 rounded-lg bg-background-light dark:bg-background-dark border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800"
+                disabled={proctorSuspicious}
               >
                 <Maximize2 className="w-5 h-5" />
               </button>
@@ -178,6 +262,7 @@ export default function ExamPage({ params }: { params: { id: string } }) {
                           handleAnswerChange(question.id, e.target.value)
                         }
                         className="mr-3 w-4 h-4 text-primary"
+                        disabled={proctorSuspicious}
                       />
                       <span>{option}</span>
                     </label>
@@ -196,6 +281,7 @@ export default function ExamPage({ params }: { params: { id: string } }) {
                     "focus:ring-2 focus:ring-primary focus:border-transparent"
                   )}
                   placeholder="Type your answer here..."
+                  disabled={proctorSuspicious}
                 />
               )}
             </motion.div>
@@ -206,7 +292,7 @@ export default function ExamPage({ params }: { params: { id: string } }) {
                 onClick={() =>
                   setCurrentQuestion((prev) => Math.max(0, prev - 1))
                 }
-                disabled={currentQuestion === 0}
+                disabled={proctorSuspicious || currentQuestion === 0}
                 className={cn(
                   "px-6 py-3 rounded-lg font-semibold",
                   "bg-card-light dark:bg-card-dark border border-gray-200 dark:border-gray-700",
@@ -223,6 +309,7 @@ export default function ExamPage({ params }: { params: { id: string } }) {
                       Math.min(examData.questions.length - 1, prev + 1)
                     )
                   }
+                  disabled={proctorSuspicious}
                   className="px-6 py-3 bg-primary text-white rounded-lg font-semibold hover:bg-primary-dark"
                 >
                   Next
@@ -230,6 +317,7 @@ export default function ExamPage({ params }: { params: { id: string } }) {
               ) : (
                 <button
                   onClick={handleSubmit}
+                  disabled={proctorSuspicious}
                   className="px-6 py-3 bg-success text-white rounded-lg font-semibold hover:bg-success/90"
                 >
                   Submit Exam
@@ -247,6 +335,7 @@ export default function ExamPage({ params }: { params: { id: string } }) {
                   <button
                     key={q.id}
                     onClick={() => setCurrentQuestion(index)}
+                    disabled={proctorSuspicious}
                     className={cn(
                       "w-10 h-10 rounded-lg flex items-center justify-center text-sm font-semibold transition-colors",
                       currentQuestion === index

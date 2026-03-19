@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/providers/theme-provider";
-import { ChatbotWidget } from "@/components/chat/ChatbotWidget";
+import { ConditionalChatbot } from "@/components/chat/ConditionalChatbot";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -22,7 +22,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <ThemeProvider>
           {children}
-          <ChatbotWidget />
+          <ConditionalChatbot />
         </ThemeProvider>
       </body>
     </html>

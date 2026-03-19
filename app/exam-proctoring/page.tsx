@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Mic, Camera, Monitor, CheckCircle, AlertCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
@@ -23,17 +23,6 @@ export default function ExamProctoringPage() {
   });
   const [cameraError, setCameraError] = useState<string | null>(null);
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const cameraStreamRef = useRef<MediaStream | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (cameraStreamRef.current) {
-        cameraStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, []);
-
   const handleRequestPermission = async (
     type: "mic" | "camera" | "screen"
   ) => {
@@ -49,15 +38,13 @@ export default function ExamProctoringPage() {
         stream.getTracks().forEach((track) => track.stop());
       } else if (type === "camera") {
         setCameraError(null);
+        // Request camera permission, but release the stream immediately so the Python proctor can open it.
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 640, height: 480 },
+          video: true,
         });
-        cameraStreamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
         setCameraEnabled(true);
         setPermissionStatus((prev) => ({ ...prev, camera: "granted" }));
+        stream.getTracks().forEach((track) => track.stop());
       } else if (type === "screen") {
         setScreenMonitoringEnabled(true);
         setPermissionStatus((prev) => ({ ...prev, screen: "granted" }));
@@ -81,19 +68,6 @@ export default function ExamProctoringPage() {
 
   const handleStartExam = async () => {
     if (!canStartExam) return;
-
-    try {
-      // Fire-and-forget call to local Python proctoring server
-      await fetch("http://127.0.0.1:5001/start-proctor", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ camera_index: 0 }),
-      });
-    } catch {
-      // If the Python server is not running, the exam can still proceed,
-      // but proctoring will not be active.
-      console.warn("Could not reach local proctoring server on port 5001.");
-    }
 
     router.push("/quiz-login");
   };
@@ -237,27 +211,6 @@ export default function ExamProctoringPage() {
           animate={{ opacity: 1, x: 0 }}
           className="w-full lg:w-2/3 bg-white dark:bg-card-dark border-l border-gray-200 dark:border-gray-700 p-6 lg:p-12"
         >
-          {/* Live camera preview */}
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-              Live Camera Preview
-            </h3>
-            <div className="relative rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden bg-black aspect-video flex items-center justify-center">
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover"
-              />
-              {!cameraEnabled && (
-                <span className="absolute text-xs text-gray-400">
-                  Enable camera to see preview
-                </span>
-              )}
-            </div>
-          </div>
-
           <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-6">
             Exam Rules Notice
           </h2>
